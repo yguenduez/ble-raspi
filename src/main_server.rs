@@ -1,7 +1,8 @@
 //! Serves a Bluetooth GATT echo server.
 
 /// Service UUID for GATT example.
-const SERVICE_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xFEEDC0DE00002);
+///
+const SERVICE_ID: &str = "FD2B4448-AA0F-4A15-A62F-EB0BE77A0000";
 
 /// Characteristic UUID for GATT example.
 const CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xF00DC0DE00002);
@@ -9,6 +10,7 @@ const CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xF00DC0DE00002);
 /// RSSI Characteristic UUID for GATT example.
 const RSSI_CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xFEEDC0DE00003);
 
+use std::str::FromStr;
 use bluer::{
     adv::Advertisement,
     gatt::{
@@ -29,6 +31,7 @@ use tokio::{
 
 #[tokio::main]
 async fn main() -> bluer::Result<()> {
+    let service_uuid =  uuid::Uuid::from_str(&SERVICE_ID.to_lowercase());
     env_logger::init();
     let session = bluer::Session::new().await?;
     let adapter = session.default_adapter().await?;
@@ -40,7 +43,7 @@ async fn main() -> bluer::Result<()> {
         adapter.address().await?
     );
     let le_advertisement = Advertisement {
-        service_uuids: vec![SERVICE_UUID].into_iter().collect(),
+        service_uuids: vec![service_uuid].into_iter().collect(),
         discoverable: Some(true),
         local_name: Some("gatt_echo_server".to_string()),
         ..Default::default()
@@ -54,7 +57,7 @@ async fn main() -> bluer::Result<()> {
     let (char_control, char_handle) = characteristic_control();
     let app = Application {
         services: vec![Service {
-            uuid: SERVICE_UUID,
+            uuid: service_uuid.unwrap(),
             primary: true,
             characteristics: vec![
                 Characteristic {
@@ -105,7 +108,7 @@ async fn main() -> bluer::Result<()> {
         if let Some(writer) = &mut writer_opt {
             writer.write_all(&rssi_data).await?;
         }
-        
+
         tokio::select! {
             _ = lines.next_line() => break,
             evt = char_control.next() => {
