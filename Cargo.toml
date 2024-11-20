@@ -1,0 +1,20 @@
+[package]
+name = "ble-raspi"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "server"
+path = "src/main_server.rs"
+
+[[bin]]
+name = "client"
+path = "src/main_client.rs"
+
+
+[dependencies]
+bluer = { version = "0.17.3", features = ["full"] }
+env_logger = "0.11.5"
+futures = "0.3.31"
+tokio = { version = "1.41.1", features = ["full"] }
+uuid = { version = "1.11.0", features = ["v4"] }
