@@ -102,7 +102,7 @@ async fn main() -> bluer::Result<()> {
         let rssi_value: i32 = 42;
         let rssi_data = rssi_value.to_le_bytes();
 
-        if let Some(mut writer) = &writer_opt {
+        if let Some(ref mut writer) = &writer_opt {
             writer.write_all(&rssi_data).await?;
         }
         
