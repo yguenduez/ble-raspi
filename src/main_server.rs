@@ -99,7 +99,7 @@ async fn main() -> bluer::Result<()> {
     pin_mut!(char_control);
 
     loop {
-        let rssi_value = 42;
+        let rssi_value: i32 = 42;
         let rssi_data = rssi_value.to_le_bytes();
 
         if let Some(mut writer) = &writer_opt {
