@@ -5,13 +5,17 @@ const SERVICE_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xFEEDC0DE00002);
 
 /// Characteristic UUID for GATT example.
 const CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xF00DC0DE00002);
+
+/// RSSI Characteristic UUID for GATT example.
+const RSSI_CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xFEEDC0DE00003);
+
 use bluer::{
     adv::Advertisement,
     gatt::{
         local::{
             characteristic_control, Application, Characteristic, CharacteristicControlEvent,
-            CharacteristicNotify, CharacteristicNotifyMethod, CharacteristicWrite, CharacteristicWriteMethod,
-            Service,
+            CharacteristicNotify, CharacteristicNotifyMethod, CharacteristicWrite,
+            CharacteristicWriteMethod, Service,
         },
         CharacteristicReader, CharacteristicWriter,
     },
@@ -30,7 +34,11 @@ async fn main() -> bluer::Result<()> {
     let adapter = session.default_adapter().await?;
     adapter.set_powered(true).await?;
 
-    println!("Advertising on Bluetooth adapter {} with address {}", adapter.name(), adapter.address().await?);
+    println!(
+        "Advertising on Bluetooth adapter {} with address {}",
+        adapter.name(),
+        adapter.address().await?
+    );
     let le_advertisement = Advertisement {
         service_uuids: vec![SERVICE_UUID].into_iter().collect(),
         discoverable: Some(true),
@@ -39,27 +47,42 @@ async fn main() -> bluer::Result<()> {
     };
     let adv_handle = adapter.advertise(le_advertisement).await?;
 
-    println!("Serving GATT echo service on Bluetooth adapter {}", adapter.name());
+    println!(
+        "Serving GATT echo service on Bluetooth adapter {}",
+        adapter.name()
+    );
     let (char_control, char_handle) = characteristic_control();
     let app = Application {
         services: vec![Service {
             uuid: SERVICE_UUID,
             primary: true,
-            characteristics: vec![Characteristic {
-                uuid: CHARACTERISTIC_UUID,
-                write: Some(CharacteristicWrite {
-                    write_without_response: true,
-                    method: CharacteristicWriteMethod::Io,
+            characteristics: vec![
+                Characteristic {
+                    uuid: CHARACTERISTIC_UUID,
+                    write: Some(CharacteristicWrite {
+                        write_without_response: true,
+                        method: CharacteristicWriteMethod::Io,
+                        ..Default::default()
+                    }),
+                    notify: Some(CharacteristicNotify {
+                        notify: true,
+                        method: CharacteristicNotifyMethod::Io,
+                        ..Default::default()
+                    }),
+                    control_handle: char_handle,
                     ..Default::default()
-                }),
-                notify: Some(CharacteristicNotify {
-                    notify: true,
-                    method: CharacteristicNotifyMethod::Io,
+                },
+                // Add RSSI Characteristic
+                Characteristic {
+                    uuid: RSSI_CHARACTERISTIC_UUID,
+                    notify: Some(CharacteristicNotify {
+                        notify: true,
+                        method: CharacteristicNotifyMethod::Io,
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
-                control_handle: char_handle,
-                ..Default::default()
-            }],
+                },
+            ],
             ..Default::default()
         }],
         ..Default::default()
@@ -76,6 +99,13 @@ async fn main() -> bluer::Result<()> {
     pin_mut!(char_control);
 
     loop {
+        let rssi_value = 42;
+        let rssi_data = rssi_value.to_le_bytes();
+
+        if let Some(mut writer) = &writer_opt {
+            writer.write_all(&rssi_data).await?;
+        }
+        
         tokio::select! {
             _ = lines.next_line() => break,
             evt = char_control.next() => {
