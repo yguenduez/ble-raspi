@@ -31,7 +31,7 @@ use tokio::{
 
 #[tokio::main]
 async fn main() -> bluer::Result<()> {
-    let service_uuid =  uuid::Uuid::from_str(&SERVICE_ID.to_lowercase());
+    let service_uuid =  uuid::Uuid::from_str(&SERVICE_ID.to_lowercase()).unwrap();
     env_logger::init();
     let session = bluer::Session::new().await?;
     let adapter = session.default_adapter().await?;
@@ -43,7 +43,7 @@ async fn main() -> bluer::Result<()> {
         adapter.address().await?
     );
     let le_advertisement = Advertisement {
-        service_uuids: vec![service_uuid].into_iter().collect(),
+        service_uuids: vec![service_uuid.clone()].into_iter().collect(),
         discoverable: Some(true),
         local_name: Some("gatt_echo_server".to_string()),
         ..Default::default()
@@ -57,7 +57,7 @@ async fn main() -> bluer::Result<()> {
     let (char_control, char_handle) = characteristic_control();
     let app = Application {
         services: vec![Service {
-            uuid: service_uuid.unwrap(),
+            uuid: service_uuid,
             primary: true,
             characteristics: vec![
                 Characteristic {
