@@ -10,7 +10,6 @@ const CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xF00DC0DE00002);
 /// RSSI Characteristic UUID for GATT example.
 const RSSI_CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xFEEDC0DE00003);
 
-use std::str::FromStr;
 use bluer::{
     adv::Advertisement,
     gatt::{
@@ -23,15 +22,16 @@ use bluer::{
     },
 };
 use futures::{future, pin_mut, StreamExt};
+use std::str::FromStr;
 use std::time::Duration;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncReadExt, AsyncWriteExt},
     time::sleep,
 };
 
 #[tokio::main]
 async fn main() -> bluer::Result<()> {
-    let service_uuid =  uuid::Uuid::from_str(&SERVICE_ID.to_lowercase()).unwrap();
+    let service_uuid = uuid::Uuid::from_str(&SERVICE_ID.to_lowercase()).unwrap();
     env_logger::init();
     let session = bluer::Session::new().await?;
     let adapter = session.default_adapter().await?;
