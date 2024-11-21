@@ -92,9 +92,7 @@ async fn main() -> bluer::Result<()> {
     };
     let app_handle = adapter.serve_gatt_application(app).await?;
 
-    println!("Echo service ready. Press enter to quit.");
-    let stdin = BufReader::new(tokio::io::stdin());
-    let mut lines = stdin.lines();
+    println!("GATT Service Ready - Serving");
 
     let mut read_buf = Vec::new();
     let mut reader_opt: Option<CharacteristicReader> = None;
@@ -110,7 +108,6 @@ async fn main() -> bluer::Result<()> {
         }
 
         tokio::select! {
-            _ = lines.next_line() => break,
             evt = char_control.next() => {
                 match evt {
                     Some(CharacteristicControlEvent::Write(req)) => {
