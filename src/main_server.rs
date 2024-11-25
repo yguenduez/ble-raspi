@@ -123,7 +123,7 @@ async fn main() -> bluer::Result<()> {
     let mut cpu_load_writer_opt: Option<CharacteristicWriter> = None;
     let mut temp_writer_opt: Option<CharacteristicWriter> = None;
     let mut memory_writer_opt: Option<CharacteristicWriter> = None;
-    
+
     pin_mut!(cpu_control);
     pin_mut!(temp_control);
     pin_mut!(memory_control);
@@ -178,7 +178,7 @@ async fn main() -> bluer::Result<()> {
                     println!("Updated CPU temp characteristic: {:.2}C", cpu_temperature);
                 }
                 if let Some(writer) = &mut memory_writer_opt {
-                    let usage = format!("Memory Usage is: {}/{}", memory_usage.total, memory_usage.free);
+                    let usage = format!("Memory Usage is: {}/{}", memory_usage.total.as_u64() - memory_usage.free.as_u64(), memory_usage.total.as_u64());
                     writer.write_all(&usage.clone().into_bytes()).await?;
                     println!("{usage}");
                 }
