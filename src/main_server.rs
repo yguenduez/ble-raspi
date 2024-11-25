@@ -70,7 +70,8 @@ async fn main() -> bluer::Result<()> {
         "Serving GATT echo service on Bluetooth adapter {}",
         adapter.name()
     );
-    let (char_control, char_handle) = characteristic_control();
+    let (cpu_control, cpu_handle) = characteristic_control();
+    let (temp_control, temp_handle) = characteristic_control();
     let app = Application {
         services: vec![Service {
             uuid: service_uuid,
@@ -84,20 +85,20 @@ async fn main() -> bluer::Result<()> {
                         method: CharacteristicNotifyMethod::Io,
                         ..Default::default()
                     }),
-                    control_handle: char_handle,
+                    control_handle: cpu_handle,
                     ..Default::default()
                 },
-                // // CPU Temperature
-                // Characteristic {
-                //     uuid: TEMPERATURE,
-                //     notify: Some(CharacteristicNotify {
-                //         notify: true,
-                //         method: CharacteristicNotifyMethod::Io,
-                //         ..Default::default()
-                //     }),
-                //     control_handle: char_handle,
-                //     ..Default::default()
-                // },
+                // CPU Temperature
+                Characteristic {
+                    uuid: TEMPERATURE,
+                    notify: Some(CharacteristicNotify {
+                        notify: true,
+                        method: CharacteristicNotifyMethod::Io,
+                        ..Default::default()
+                    }),
+                    control_handle: temp_handle,
+                    ..Default::default()
+                },
             ],
             ..Default::default()
         }],
@@ -108,17 +109,28 @@ async fn main() -> bluer::Result<()> {
     println!("GATT Service Ready - Serving");
 
     let mut cpu_load_writer_opt: Option<CharacteristicWriter> = None;
-    pin_mut!(char_control);
+    let mut temp_writer_opt: Option<CharacteristicWriter> = None;
+    pin_mut!(cpu_control);
+    pin_mut!(temp_control);
 
     let sys = System::new();
 
     loop {
         tokio::select! {
-            evt = char_control.next() => {
+            evt = cpu_control.next() => {
                 match evt {
                     Some(CharacteristicControlEvent::Notify(notifier)) => {
                         println!("Accepting notify request event with MTU {}", notifier.mtu());
-                        cpu_load_writer_opt = Some(notifier);
+                                                                            cpu_load_writer_opt = Some(notifier);
+                    },
+                    None => break,
+                _ => {break}}
+            },
+            evt = temp_control.next() => {
+                match evt {
+                    Some(CharacteristicControlEvent::Notify(notifier)) => {
+                        println!("Accepting notify request event with MTU {}", notifier.mtu());
+                                                                            temp_writer_opt = Some(notifier);
                     },
                     None => break,
                 _ => {break}}
@@ -126,12 +138,19 @@ async fn main() -> bluer::Result<()> {
             _ = time::sleep(Duration::from_secs(1)) => {
                 let cpu_load = sys.cpu_load_aggregate()?.done()?;
                 let system_cpu_load = cpu_load.system;
-                
+
+                let cpu_temperature = sys.cpu_temp()?;
+
                 println!("CPU LOAD is: {system_cpu_load}");
+                println!("CPU TEMP is: {cpu_temperature}");
 
                 if let Some(writer) = &mut cpu_load_writer_opt {
                     writer.write_f32(system_cpu_load).await?;
                     println!("Updated CPU load characteristic: {:.2}%", system_cpu_load);
+                }
+                if let Some(writer) = &mut temp_writer_opt {
+                    writer.write_f32(cpu_temperature).await?;
+                    println!("Updated CPU temp characteristic: {:.2}%", system_cpu_load);
                 }
             }
         }
