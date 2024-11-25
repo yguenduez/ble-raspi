@@ -180,7 +180,8 @@ async fn main() -> bluer::Result<()> {
                 if let Some(writer) = &mut memory_writer_opt {
                     let usage = format!("Memory Usage is: {}/{}", memory_usage.total.as_u64() - memory_usage.free.as_u64(), memory_usage.total.as_u64());
                     writer.write_all(&usage.clone().into_bytes()).await?;
-                    println!("{usage}");
+                    writer.flush().await?;
+                    println!("Updated Memory usage: {usage}");
                 }
             }
         }
