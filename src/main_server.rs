@@ -70,6 +70,7 @@ async fn main() -> bluer::Result<()> {
         "Serving GATT echo service on Bluetooth adapter {}",
         adapter.name()
     );
+    let (mut memory_control, memory_handle) = characteristic_control();
     let (cpu_control, cpu_handle) = characteristic_control();
     let (temp_control, temp_handle) = characteristic_control();
     let app = Application {
@@ -99,6 +100,17 @@ async fn main() -> bluer::Result<()> {
                     control_handle: temp_handle,
                     ..Default::default()
                 },
+                // Memory Usage
+                Characteristic {
+                    uuid: RAM_USAGE,
+                    notify: Some(CharacteristicNotify {
+                        notify: true,
+                        method: CharacteristicNotifyMethod::Io,
+                        ..Default::default()
+                    }),
+                    control_handle: memory_handle,
+                    ..Default::default()
+                },
             ],
             ..Default::default()
         }],
@@ -110,6 +122,7 @@ async fn main() -> bluer::Result<()> {
 
     let mut cpu_load_writer_opt: Option<CharacteristicWriter> = None;
     let mut temp_writer_opt: Option<CharacteristicWriter> = None;
+    let mut memory_writer_opt: Option<CharacteristicWriter> = None;
     pin_mut!(cpu_control);
     pin_mut!(temp_control);
 
@@ -135,14 +148,24 @@ async fn main() -> bluer::Result<()> {
                     None => break,
                 _ => {break}}
             },
+            evt = memory_control.next() => {
+                match evt {
+                    Some(CharacteristicControlEvent::Notify(notifier)) => {
+                        println!("Accepting notify request event with MTU {}", notifier.mtu());
+                                                                            memory_writer_opt = Some(notifier);
+                    },
+                    None => break,
+                _ => {break}}
+            },
             _ = time::sleep(Duration::from_secs(1)) => {
                 let cpu_load = sys.cpu_load_aggregate()?.done()?;
                 let system_cpu_load = cpu_load.system;
-
                 let cpu_temperature = sys.cpu_temp()?;
+                let memory_usage = sys.memory()?;
 
                 println!("CPU LOAD is: {system_cpu_load}");
                 println!("CPU TEMP is: {cpu_temperature}");
+                println!("Memory Usage is: {}/{}", memory_usage.total, memory_usage.free);
 
                 if let Some(writer) = &mut cpu_load_writer_opt {
                     writer.write_f32(system_cpu_load).await?;
@@ -150,7 +173,12 @@ async fn main() -> bluer::Result<()> {
                 }
                 if let Some(writer) = &mut temp_writer_opt {
                     writer.write_f32(cpu_temperature).await?;
-                    println!("Updated CPU temp characteristic: {:.2}%", system_cpu_load);
+                    println!("Updated CPU temp characteristic: {:.2}%", cpu_temperature);
+                }
+                if let Some(writer) = &mut memory_writer_opt {
+                    let usage = format!("Memory Usage is: {}/{}", memory_usage.total, memory_usage.free);
+                    writer.write_all(&usage.into_bytes()).await?;
+                    println!("Updated CPU temp characteristic: {:.2}%", cpu_temperature);
                 }
             }
         }
