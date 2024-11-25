@@ -9,7 +9,9 @@ path = "src/main_server.rs"
 
 [dependencies]
 bluer = { version = "0.17.3", features = ["full"] }
+bytemuck = "1.20.0"
 env_logger = "0.11.5"
 futures = "0.3.31"
+systemstat = "0.2.3"
 tokio = { version = "1.41.1", features = ["full"] }
 uuid = { version = "1.11.0", features = ["v4"] }
