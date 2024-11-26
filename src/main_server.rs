@@ -185,10 +185,14 @@ async fn main() -> bluer::Result<()> {
                     writer.write_f32(cpu_temperature).await?;
                     println!("Updated CPU temp characteristic: {:.2}C", cpu_temperature);
                 }
-                if let Some(writer) = &mut memory_writer_opt {
-                    let usage = (memory_usage.total.as_u64() - memory_usage.free.as_u64() ) as f64 / memory_usage.total.as_u64() as f64;
-                    writer.write_f64(usage).await?;
-                    println!("Updated Memory usage: {:.2}%", usage);
+               if let Some(writer) = &mut memory_writer_opt {
+                    let used_memory = memory_usage.total.as_u64() - memory_usage.free.as_u64();
+                    let used_memory = used_memory as f64 / 1024f64/ 1024f64;
+                    let total_memory = memory_usage.total.as_u64();
+                    let usage = format!("{used_memory}/{total_memory} MB");
+                    writer.write_all(&usage.clone().into_bytes()).await?;
+                    writer.flush().await?;
+                    println!("Updated Memory usage: {usage}");
                 }
                 if let Some(writer) = &mut uptime_writer_opt {
                     writer.write_u64(uptime_minutes).await?;
