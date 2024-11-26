@@ -1,43 +1,27 @@
 use systemstat::{Platform, System};
 
-/// Service UUID for GATT example.
-///
 const SERVICE_ID: &str = "FD2B4448-AA0F-4A15-A62F-EB0BE77A0000";
 
-/// Characteristic UUID for GATT example.
-// const CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xF00DC0DE00002);
-
-/// RSSI Characteristic UUID for GATT example.
-// const RSSI_CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xFEEDC0DE00003);
-
 /// Temperature
-const TEMPERATURE: uuid::Uuid = uuid::Uuid::from_u128(0xFEEDC0DE00001);
+const TEMPERATURE: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0001);
 
 /// CPU LOAD
-const CPU_LOAD: uuid::Uuid = uuid::Uuid::from_u128(0xFEEDC0DE00002);
+const CPU_LOAD: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0002);
 
 /// RAM USAGE
-const RAM_USAGE: uuid::Uuid = uuid::Uuid::from_u128(0xFEEDC0DE00003);
+const RAM_USAGE: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0003);
 
 /// Uptime
-const UPTIME: uuid::Uuid = uuid::Uuid::from_u128(0xFEEDC0DE00004);
+const UPTIME: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0004);
 
-/*
-const uuids = {
-// '00000000-0000-0000-0000-fd2bcccb0001': 'temperature',// 34 C
-// '00000000-0000-0000-0000-fd2bcccb0002': 'CPU', // 45
-// '00000000-0000-0000-0000-fd2bcccb0003': 'RAM', // 110/926MB
-// 'readValue fd2b4448-aa0f-4a15-a62f-eb0be77a0004': 'Uptime'}
- */
 use bluer::{
     adv::Advertisement,
     gatt::{
         local::{
             characteristic_control, Application, Characteristic, CharacteristicControlEvent,
-            CharacteristicNotify, CharacteristicNotifyMethod, CharacteristicWrite,
-            CharacteristicWriteMethod, Service,
+            CharacteristicNotify, CharacteristicNotifyMethod, Service,
         },
-        CharacteristicReader, CharacteristicWriter,
+        CharacteristicWriter,
     },
 };
 use futures::{pin_mut, StreamExt};
@@ -73,6 +57,7 @@ async fn main() -> bluer::Result<()> {
     let (mut memory_control, memory_handle) = characteristic_control();
     let (cpu_control, cpu_handle) = characteristic_control();
     let (temp_control, temp_handle) = characteristic_control();
+    let (uptime_control, uptime_handle) = characteristic_control();
     let app = Application {
         services: vec![Service {
             uuid: service_uuid,
@@ -111,6 +96,17 @@ async fn main() -> bluer::Result<()> {
                     control_handle: memory_handle,
                     ..Default::default()
                 },
+                // Uptime Usage
+                Characteristic {
+                    uuid: RAM_USAGE,
+                    notify: Some(CharacteristicNotify {
+                        notify: true,
+                        method: CharacteristicNotifyMethod::Io,
+                        ..Default::default()
+                    }),
+                    control_handle: uptime_handle,
+                    ..Default::default()
+                },
             ],
             ..Default::default()
         }],
@@ -123,10 +119,12 @@ async fn main() -> bluer::Result<()> {
     let mut cpu_load_writer_opt: Option<CharacteristicWriter> = None;
     let mut temp_writer_opt: Option<CharacteristicWriter> = None;
     let mut memory_writer_opt: Option<CharacteristicWriter> = None;
+    let mut uptime_writer_opt: Option<CharacteristicWriter> = None;
 
     pin_mut!(cpu_control);
     pin_mut!(temp_control);
     pin_mut!(memory_control);
+    pin_mut!(uptime_control);
 
     let sys = System::new();
 
@@ -158,12 +156,22 @@ async fn main() -> bluer::Result<()> {
                     },
                     None => break,
                 _ => {break}}
+            }, evt = uptime_control.next() => {
+                match evt {
+                    Some(CharacteristicControlEvent::Notify(notifier)) => {
+                        println!("Accepting notify request event with MTU {}", notifier.mtu());
+                                                                            uptime_writer_opt = Some(notifier);
+                    },
+                    None => break,
+                _ => {break}}
             },
             _ = time::sleep(Duration::from_secs(1)) => {
                 let cpu_load = sys.cpu_load_aggregate()?.done()?;
                 let system_cpu_load = cpu_load.system;
                 let cpu_temperature = sys.cpu_temp()?;
                 let memory_usage = sys.memory()?;
+                let uptime = sys.uptime()?;
+                let uptime_minutes = uptime.as_secs()/60;
 
                 println!("CPU LOAD is: {system_cpu_load}");
                 println!("CPU TEMP is: {cpu_temperature}");
@@ -178,10 +186,13 @@ async fn main() -> bluer::Result<()> {
                     println!("Updated CPU temp characteristic: {:.2}C", cpu_temperature);
                 }
                 if let Some(writer) = &mut memory_writer_opt {
-                    let usage = format!("Memory Usage is: {}/{}", memory_usage.total.as_u64() - memory_usage.free.as_u64(), memory_usage.total.as_u64());
-                    writer.write_all(&usage.clone().into_bytes()).await?;
-                    writer.flush().await?;
-                    println!("Updated Memory usage: {usage}");
+                    let usage = (memory_usage.total.as_u64() - memory_usage.free.as_u64() ) as f64 / memory_usage.total.as_u64() as f64;
+                    writer.write_f64(usage).await?;
+                    println!("Updated Memory usage: {:.2}%", usage);
+                }
+                if let Some(writer) = &mut uptime_writer_opt {
+                    writer.write_u64(uptime_minutes).await?;
+                    println!("Updated Uptime Minutes characteristic: {uptime_minutes}");
                 }
             }
         }
