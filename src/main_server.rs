@@ -98,7 +98,7 @@ async fn main() -> bluer::Result<()> {
                 },
                 // Uptime Usage
                 Characteristic {
-                    uuid: RAM_USAGE,
+                    uuid: UPTIME,
                     notify: Some(CharacteristicNotify {
                         notify: true,
                         method: CharacteristicNotifyMethod::Io,
