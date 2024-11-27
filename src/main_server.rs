@@ -14,6 +14,10 @@ const RAM_USAGE: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0003);
 /// Uptime
 const UPTIME: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0004);
 
+/// Request Response
+const WRITE_REQUEST_RESPONSE: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0005);
+
+use bluer::gatt::local::{CharacteristicRead, CharacteristicWrite, CharacteristicWriteMethod, CharacteristicWriteRequest};
 use bluer::{
     adv::Advertisement,
     gatt::{
@@ -27,7 +31,9 @@ use bluer::{
 use futures::{pin_mut, StreamExt};
 use std::str::FromStr;
 use std::time::Duration;
+use bluer::gatt::CharacteristicReader;
 use tokio::{io::AsyncWriteExt, time, time::sleep};
+use tokio::io::AsyncReadExt;
 
 #[tokio::main]
 async fn main() -> bluer::Result<()> {
@@ -58,11 +64,31 @@ async fn main() -> bluer::Result<()> {
     let (cpu_control, cpu_handle) = characteristic_control();
     let (temp_control, temp_handle) = characteristic_control();
     let (uptime_control, uptime_handle) = characteristic_control();
+
+    let (write_request_control, write_request_handle) = characteristic_control();
+    let (write_response_control, write_response_handle) = characteristic_control();
+
     let app = Application {
         services: vec![Service {
             uuid: service_uuid,
             primary: true,
             characteristics: vec![
+                // Request Response characteristic (with write/notify)
+                Characteristic {
+                    uuid: WRITE_REQUEST_RESPONSE,
+                    write: Some(CharacteristicWrite {
+                        write_without_response: false,
+                        method: CharacteristicWriteMethod::Io,
+                        ..Default::default()
+                    }),
+                    notify: Some(CharacteristicNotify {
+                        method: CharacteristicNotifyMethod::Io,
+                        ..Default::default()
+                    }),
+                    control_handle: write_request_handle,
+                    ..Default::default()
+                },
+
                 // CPU Load characteristic
                 Characteristic {
                     uuid: CPU_LOAD,
@@ -121,15 +147,36 @@ async fn main() -> bluer::Result<()> {
     let mut memory_writer_opt: Option<CharacteristicWriter> = None;
     let mut uptime_writer_opt: Option<CharacteristicWriter> = None;
 
+    let mut write_opt: Option<CharacteristicWriter> = None;
+    let mut read_opt: Option<CharacteristicReader> = None;
+
     pin_mut!(cpu_control);
     pin_mut!(temp_control);
     pin_mut!(memory_control);
     pin_mut!(uptime_control);
+    pin_mut!(write_request_control);
+
+    let mut read_buf = vec![];
 
     let sys = System::new();
 
     loop {
         tokio::select! {
+             evt = write_request_control.next() => {
+             match evt {
+                Some(CharacteristicControlEvent::Write(req)) => {
+                    println!("Accepting write request event with MTU {}", req.mtu());
+                    read_buf = vec![0; req.mtu()];
+                    read_opt = Some(req.accept()?);
+                },
+                Some(CharacteristicControlEvent::Notify(notifier)) => {
+                    println!("Accepting notify request event with MTU {}", notifier.mtu());
+                    write_opt = Some(notifier);
+                },
+                None => break,
+                }
+            },
+
             evt = cpu_control.next() => {
                 match evt {
                     Some(CharacteristicControlEvent::Notify(notifier)) => {
