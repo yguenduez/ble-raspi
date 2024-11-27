@@ -28,7 +28,7 @@ use bluer::{
         CharacteristicWriter,
     },
 };
-use futures::{pin_mut, StreamExt};
+use futures::{future, pin_mut, StreamExt};
 use std::str::FromStr;
 use std::time::Duration;
 use bluer::gatt::CharacteristicReader;
@@ -176,6 +176,34 @@ async fn main() -> bluer::Result<()> {
                 None => break,
                 }
             },
+            read_res = async {
+                match &mut read_opt {
+                    Some(reader) if write_opt.is_some() => reader.read(&mut read_buf).await,
+                    _ => future::pending().await,
+                }
+            } => {
+                match read_res {
+                    Ok(0) => {
+                        println!("Read stream ended");
+                        read_opt = None;
+                    }
+                    Ok(n) => {
+                        let value = read_buf[..n].to_vec();
+                        println!("Echoing {} bytes: {:x?} ... {:x?}", value.len(), &value[0..4.min(value.len())], &value[value.len().saturating_sub(4) ..]);
+                        if value.len() < 512 {
+                            println!();
+                        }
+                        if let Err(err) = write_opt.as_mut().unwrap().write_all(&value).await {
+                            println!("Write failed: {}", &err);
+                            write_opt = None;
+                        }
+                    }
+                    Err(err) => {
+                        println!("Read stream error: {}", &err);
+                        read_opt = None;
+                    }
+                }
+            }
 
             evt = cpu_control.next() => {
                 match evt {
