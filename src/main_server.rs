@@ -66,7 +66,6 @@ async fn main() -> bluer::Result<()> {
     let (uptime_control, uptime_handle) = characteristic_control();
 
     let (write_request_control, write_request_handle) = characteristic_control();
-    let (write_response_control, write_response_handle) = characteristic_control();
 
     let app = Application {
         services: vec![Service {
