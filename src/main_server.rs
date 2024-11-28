@@ -1,41 +1,38 @@
-use systemstat::{Platform, System};
-
-const SERVICE_ID: &str = "FD2B4448-AA0F-4A15-A62F-EB0BE77A0000";
-
-/// Temperature
-const TEMPERATURE: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0001);
-
-/// CPU LOAD
-const CPU_LOAD: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0002);
-
-/// RAM USAGE
-const RAM_USAGE: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0003);
-
-/// Uptime
-const UPTIME: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0004);
+//! Serves a Bluetooth GATT echo server.
 
 use bluer::{
     adv::Advertisement,
     gatt::{
         local::{
             characteristic_control, Application, Characteristic, CharacteristicControlEvent,
-            CharacteristicNotify, CharacteristicNotifyMethod, Service,
+            CharacteristicNotify, CharacteristicNotifyMethod, CharacteristicWrite,
+            CharacteristicWriteMethod, Service,
         },
-        CharacteristicWriter,
+        CharacteristicReader, CharacteristicWriter,
     },
 };
-use futures::{pin_mut, StreamExt};
+use futures::{future, pin_mut, StreamExt};
 use std::str::FromStr;
 use std::time::Duration;
-use tokio::{io::AsyncWriteExt, time, time::sleep};
+use systemstat::Platform;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    time,
+    time::sleep,
+};
+
+const TEMPERATURE: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0001);
+const CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0005);
+const CHARACTERISTIC_UUID2nd: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0006);
 
 #[tokio::main]
 async fn main() -> bluer::Result<()> {
-    let service_uuid = uuid::Uuid::from_str(&SERVICE_ID.to_lowercase()).unwrap();
     env_logger::init();
     let session = bluer::Session::new().await?;
     let adapter = session.default_adapter().await?;
     adapter.set_powered(true).await?;
+    let service_uuid: uuid::Uuid =
+        uuid::Uuid::from_str("FD2B4448-AA0F-4A15-A62F-EB0BE77A0000").unwrap();
 
     println!(
         "Advertising on Bluetooth adapter {} with address {}",
@@ -43,7 +40,7 @@ async fn main() -> bluer::Result<()> {
         adapter.address().await?
     );
     let le_advertisement = Advertisement {
-        service_uuids: vec![service_uuid.clone()].into_iter().collect(),
+        service_uuids: vec![service_uuid].into_iter().collect(),
         discoverable: Some(true),
         local_name: Some("gatt_echo_server".to_string()),
         ..Default::default()
@@ -54,27 +51,44 @@ async fn main() -> bluer::Result<()> {
         "Serving GATT echo service on Bluetooth adapter {}",
         adapter.name()
     );
-    let (mut memory_control, memory_handle) = characteristic_control();
-    let (cpu_control, cpu_handle) = characteristic_control();
+    let (write_notify_control, write_notify_handle) = characteristic_control();
+    let (write_notify_control2nd, write_notify_handle2nd) = characteristic_control();
     let (temp_control, temp_handle) = characteristic_control();
-    let (uptime_control, uptime_handle) = characteristic_control();
     let app = Application {
         services: vec![Service {
             uuid: service_uuid,
             primary: true,
             characteristics: vec![
-                // CPU Load characteristic
                 Characteristic {
-                    uuid: CPU_LOAD,
+                    uuid: CHARACTERISTIC_UUID,
+                    write: Some(CharacteristicWrite {
+                        write_without_response: true,
+                        method: CharacteristicWriteMethod::Io,
+                        ..Default::default()
+                    }),
                     notify: Some(CharacteristicNotify {
                         notify: true,
                         method: CharacteristicNotifyMethod::Io,
                         ..Default::default()
                     }),
-                    control_handle: cpu_handle,
+                    control_handle: write_notify_handle,
                     ..Default::default()
                 },
-                // CPU Temperature
+                Characteristic {
+                    uuid: CHARACTERISTIC_UUID2nd,
+                    write: Some(CharacteristicWrite {
+                        write_without_response: true,
+                        method: CharacteristicWriteMethod::Io,
+                        ..Default::default()
+                    }),
+                    notify: Some(CharacteristicNotify {
+                        notify: true,
+                        method: CharacteristicNotifyMethod::Io,
+                        ..Default::default()
+                    }),
+                    control_handle: write_notify_handle2nd,
+                    ..Default::default()
+                },
                 Characteristic {
                     uuid: TEMPERATURE,
                     notify: Some(CharacteristicNotify {
@@ -85,28 +99,6 @@ async fn main() -> bluer::Result<()> {
                     control_handle: temp_handle,
                     ..Default::default()
                 },
-                // Memory Usage
-                Characteristic {
-                    uuid: RAM_USAGE,
-                    notify: Some(CharacteristicNotify {
-                        notify: true,
-                        method: CharacteristicNotifyMethod::Io,
-                        ..Default::default()
-                    }),
-                    control_handle: memory_handle,
-                    ..Default::default()
-                },
-                // Uptime Usage
-                Characteristic {
-                    uuid: UPTIME,
-                    notify: Some(CharacteristicNotify {
-                        notify: true,
-                        method: CharacteristicNotifyMethod::Io,
-                        ..Default::default()
-                    }),
-                    control_handle: uptime_handle,
-                    ..Default::default()
-                },
             ],
             ..Default::default()
         }],
@@ -114,91 +106,136 @@ async fn main() -> bluer::Result<()> {
     };
     let app_handle = adapter.serve_gatt_application(app).await?;
 
-    println!("GATT Service Ready - Serving");
+    println!("Echo service ready");
+    let stdin = BufReader::new(tokio::io::stdin());
 
-    let mut cpu_load_writer_opt: Option<CharacteristicWriter> = None;
+    let mut read_buf = Vec::new();
+    let mut read_buf2nd = Vec::new();
+    let mut reader_opt: Option<CharacteristicReader> = None;
+    let mut writer_opt: Option<CharacteristicWriter> = None;
+
+    let mut reader_opt2nd: Option<CharacteristicReader> = None;
+    let mut writer_opt2nd: Option<CharacteristicWriter> = None;
+
     let mut temp_writer_opt: Option<CharacteristicWriter> = None;
-    let mut memory_writer_opt: Option<CharacteristicWriter> = None;
-    let mut uptime_writer_opt: Option<CharacteristicWriter> = None;
 
-    pin_mut!(cpu_control);
+    pin_mut!(write_notify_control);
+    pin_mut!(write_notify_control2nd);
     pin_mut!(temp_control);
-    pin_mut!(memory_control);
-    pin_mut!(uptime_control);
 
-    let sys = System::new();
+    let sys = systemstat::System::new();
 
     loop {
         tokio::select! {
-            evt = cpu_control.next() => {
+            evt = write_notify_control.next() => {
                 match evt {
+                    Some(CharacteristicControlEvent::Write(req)) => {
+                        println!("Accepting write request event with MTU {}", req.mtu());
+                        read_buf = vec![0; req.mtu()];
+                        reader_opt = Some(req.accept()?);
+                    },
                     Some(CharacteristicControlEvent::Notify(notifier)) => {
                         println!("Accepting notify request event with MTU {}", notifier.mtu());
-                                                                            cpu_load_writer_opt = Some(notifier);
+                        writer_opt = Some(notifier);
                     },
                     None => break,
-                _ => {break}}
+                }
+            },
+            evt = write_notify_control2nd.next() => {
+                match evt {
+                    Some(CharacteristicControlEvent::Write(req)) => {
+                        println!("Accepting write request event with MTU {}", req.mtu());
+                        read_buf2nd = vec![0; req.mtu()];
+                        reader_opt2nd = Some(req.accept()?);
+                    },
+                    Some(CharacteristicControlEvent::Notify(notifier)) => {
+                        println!("Accepting notify request event with MTU {}", notifier.mtu());
+                        writer_opt2nd = Some(notifier);
+                    },
+                    None => break,
+                }
             },
             evt = temp_control.next() => {
                 match evt {
                     Some(CharacteristicControlEvent::Notify(notifier)) => {
                         println!("Accepting notify request event with MTU {}", notifier.mtu());
-                                                                            temp_writer_opt = Some(notifier);
-                    },
+                        temp_writer_opt = Some(notifier);
+                    }
                     None => break,
-                _ => {break}}
-            },
-            evt = memory_control.next() => {
-                match evt {
-                    Some(CharacteristicControlEvent::Notify(notifier)) => {
-                        println!("Accepting notify request event with MTU {}", notifier.mtu());
-                                                                            memory_writer_opt = Some(notifier);
-                    },
-                    None => break,
-                _ => {break}}
-            }, evt = uptime_control.next() => {
-                match evt {
-                    Some(CharacteristicControlEvent::Notify(notifier)) => {
-                        println!("Accepting notify request event with MTU {}", notifier.mtu());
-                                                                            uptime_writer_opt = Some(notifier);
-                    },
-                    None => break,
-                _ => {break}}
-            },
-            _ = time::sleep(Duration::from_secs(1)) => {
-                let cpu_load = sys.cpu_load_aggregate()?.done()?;
-                let system_cpu_load = cpu_load.system;
-                let cpu_temperature = sys.cpu_temp()?;
-                let memory_usage = sys.memory()?;
-                let uptime = sys.uptime()?;
-                let uptime_minutes = uptime.as_secs()/60;
-
-                println!("CPU LOAD is: {system_cpu_load}");
-                println!("CPU TEMP is: {cpu_temperature}");
-                println!("Memory Usage is: {}/{}", memory_usage.total, memory_usage.free);
-
-                if let Some(writer) = &mut cpu_load_writer_opt {
-                    writer.write_f32(system_cpu_load).await?;
-                    println!("Updated CPU load characteristic: {:.2}%", system_cpu_load);
+                    _ => break,
                 }
+            },
+            read_res = async {
+                match &mut reader_opt {
+                    Some(reader) if writer_opt.is_some() => reader.read(&mut read_buf).await,
+                    _ => future::pending().await,
+                }
+            } => {
+                match read_res {
+                    Ok(0) => {
+                        println!("Read stream ended");
+                        reader_opt = None;
+                    }
+                    Ok(n) => {
+                        let value = read_buf[..n].to_vec();
+                        println!("Echoing {} bytes: {:x?} ... {:x?}", value.len(), &value[0..4.min(value.len())], &value[value.len().saturating_sub(4) ..]);
+                        if value.len() < 512 {
+                            println!();
+                        }
+                        if let Err(err) = writer_opt.as_mut().unwrap().write_all(&value).await {
+                            println!("Write failed: {}", &err);
+                            writer_opt = None;
+                        }
+                    }
+                    Err(err) => {
+                        println!("Read stream error: {}", &err);
+                        reader_opt = None;
+                    }
+                }
+            },
+
+            read_res = async {
+                match &mut reader_opt2nd {
+                    Some(reader) if writer_opt2nd.is_some() => reader.read(&mut read_buf2nd).await,
+                    _ => future::pending().await,
+                }
+            } => {
+                match read_res {
+                    Ok(0) => {
+                        println!("Read stream ended");
+                        reader_opt2nd = None;
+                    }
+                    Ok(n) => {
+                        let value = read_buf2nd[..n].to_vec();
+                        println!("Echoing {} 2nd bytes: {:x?} ... {:x?}", value.len(), &value[0..4.min(value.len())], &value[value.len().saturating_sub(4) ..]);
+                        if value.len() < 512 {
+                            println!();
+                        }
+                        if let Err(err) = writer_opt2nd.as_mut().unwrap().write_all(&value).await {
+                            println!("Write 2nd failed: {}", &err);
+                            writer_opt2nd = None;
+                        }
+                    }
+                    Err(err) => {
+                        println!("Read stream error: {}", &err);
+                        reader_opt2nd = None;
+                    }
+                }
+            },
+
+            _ = time::sleep(Duration::from_secs(1)) => {
+                // let cpu_load = sys.cpu_load_aggregate()?.done()?;
+                // let system_cpu_load = cpu_load.system;
+                let cpu_temperature = sys.cpu_temp()?;
+                // let memory_usage = sys.memory()?;
+                // let uptime = sys.uptime()?;
+                // let uptime_minutes = uptime.as_secs()/60;
+
                 if let Some(writer) = &mut temp_writer_opt {
                     writer.write_f32(cpu_temperature).await?;
-                    println!("Updated CPU temp characteristic: {:.2}C", cpu_temperature);
+                    println!("Updated CPU Temperature: {:.2}%", cpu_temperature);
                 }
-               if let Some(writer) = &mut memory_writer_opt {
-                    let used_memory = memory_usage.total.as_u64() - memory_usage.free.as_u64();
-                    let used_memory = used_memory as f64 / 1024f64/ 1024f64;
-                    let total_memory = memory_usage.total.as_u64() as f64 / 1024f64 / 1024f64;
-                    let usage = format!("{:.2}/{:.2} MB", used_memory, total_memory);
-                    writer.write_all(&usage.clone().into_bytes()).await?;
-                    writer.flush().await?;
-                    println!("Updated Memory usage: {usage}");
                 }
-                if let Some(writer) = &mut uptime_writer_opt {
-                    writer.write_u64(uptime_minutes).await?;
-                    println!("Updated Uptime Minutes characteristic: {uptime_minutes}");
-                }
-            }
         }
     }
 
