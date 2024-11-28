@@ -158,12 +158,12 @@ async fn main() -> bluer::Result<()> {
                 }
             },
             _ = time::sleep(Duration::from_secs(1)) => {
-                let cpu_load = sys.cpu_load_aggregate()?.done()?;
-                let system_cpu_load = cpu_load.system;
+                // let cpu_load = sys.cpu_load_aggregate()?.done()?;
+                // let system_cpu_load = cpu_load.system;
                 let cpu_temperature = sys.cpu_temp()?;
-                let memory_usage = sys.memory()?;
-                let uptime = sys.uptime()?;
-                let uptime_minutes = uptime.as_secs()/60;
+                // let memory_usage = sys.memory()?;
+                // let uptime = sys.uptime()?;
+                // let uptime_minutes = uptime.as_secs()/60;
 
                 if let Some(writer) = &mut temp_writer_opt {
                     writer.write_f32(cpu_temperature).await?;
