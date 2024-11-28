@@ -68,7 +68,6 @@ async fn main() -> bluer::Result<()> {
 
     println!("Echo service ready. Press enter to quit.");
     let stdin = BufReader::new(tokio::io::stdin());
-    let mut lines = stdin.lines();
 
     let mut read_buf = Vec::new();
     let mut reader_opt: Option<CharacteristicReader> = None;
@@ -77,7 +76,6 @@ async fn main() -> bluer::Result<()> {
 
     loop {
         tokio::select! {
-            _ = lines.next_line() => break,
             evt = char_control.next() => {
                 match evt {
                     Some(CharacteristicControlEvent::Write(req)) => {
