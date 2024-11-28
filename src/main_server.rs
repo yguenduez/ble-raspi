@@ -72,22 +72,6 @@ async fn main() -> bluer::Result<()> {
             uuid: service_uuid,
             primary: true,
             characteristics: vec![
-                // Request Response characteristic (with write/notify)
-                Characteristic {
-                    uuid: WRITE_REQUEST_RESPONSE,
-                    write: Some(CharacteristicWrite {
-                        write_without_response: false,
-                        method: CharacteristicWriteMethod::Io,
-                        ..Default::default()
-                    }),
-                    notify: Some(CharacteristicNotify {
-                        method: CharacteristicNotifyMethod::Io,
-                        ..Default::default()
-                    }),
-                    control_handle: write_request_handle,
-                    ..Default::default()
-                },
-
                 // CPU Load characteristic
                 Characteristic {
                     uuid: CPU_LOAD,
@@ -130,6 +114,21 @@ async fn main() -> bluer::Result<()> {
                         ..Default::default()
                     }),
                     control_handle: uptime_handle,
+                    ..Default::default()
+                },
+                // Request Response characteristic (with write/notify)
+                Characteristic {
+                    uuid: WRITE_REQUEST_RESPONSE,
+                    write: Some(CharacteristicWrite {
+                        write_without_response: false,
+                        method: CharacteristicWriteMethod::Io,
+                        ..Default::default()
+                    }),
+                    notify: Some(CharacteristicNotify {
+                        method: CharacteristicNotifyMethod::Io,
+                        ..Default::default()
+                    }),
+                    control_handle: write_request_handle,
                     ..Default::default()
                 },
             ],
