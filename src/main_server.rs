@@ -12,10 +12,10 @@ const CPU_LOAD: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0002);
 const RAM_USAGE: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0003);
 
 /// Uptime
-const UPTIME: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0004);
+// const UPTIME: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0004);
 
 /// Request Response
-const WRITE_REQUEST_RESPONSE: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0005);
+const WRITE_REQUEST_RESPONSE: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0004);
 
 use bluer::gatt::local::{CharacteristicRead, CharacteristicWrite, CharacteristicWriteMethod, CharacteristicWriteRequest};
 use bluer::{
@@ -63,7 +63,7 @@ async fn main() -> bluer::Result<()> {
     let (mut memory_control, memory_handle) = characteristic_control();
     let (cpu_control, cpu_handle) = characteristic_control();
     let (temp_control, temp_handle) = characteristic_control();
-    let (uptime_control, uptime_handle) = characteristic_control();
+    // let (uptime_control, uptime_handle) = characteristic_control();
 
     let (write_request_control, write_request_handle) = characteristic_control();
 
@@ -106,16 +106,16 @@ async fn main() -> bluer::Result<()> {
                     ..Default::default()
                 },
                 // Uptime Usage
-                Characteristic {
-                    uuid: UPTIME,
-                    notify: Some(CharacteristicNotify {
-                        notify: true,
-                        method: CharacteristicNotifyMethod::Io,
-                        ..Default::default()
-                    }),
-                    control_handle: uptime_handle,
-                    ..Default::default()
-                },
+                // Characteristic {
+                //     uuid: UPTIME,
+                //     notify: Some(CharacteristicNotify {
+                //         notify: true,
+                //         method: CharacteristicNotifyMethod::Io,
+                //         ..Default::default()
+                //     }),
+                //     control_handle: uptime_handle,
+                //     ..Default::default()
+                // },
                 // Request Response characteristic (with write/notify)
                 Characteristic {
                     uuid: WRITE_REQUEST_RESPONSE,
@@ -151,7 +151,7 @@ async fn main() -> bluer::Result<()> {
     pin_mut!(cpu_control);
     pin_mut!(temp_control);
     pin_mut!(memory_control);
-    pin_mut!(uptime_control);
+    // pin_mut!(uptime_control);
     pin_mut!(write_request_control);
 
     let mut read_buf = vec![];
@@ -229,15 +229,16 @@ async fn main() -> bluer::Result<()> {
                     },
                     None => break,
                 _ => {break}}
-            }, evt = uptime_control.next() => {
-                match evt {
-                    Some(CharacteristicControlEvent::Notify(notifier)) => {
-                        println!("Accepting notify request event with MTU {}", notifier.mtu());
-                                                                            uptime_writer_opt = Some(notifier);
-                    },
-                    None => break,
-                _ => {break}}
             },
+            //  evt = uptime_control.next() => {
+            //     match evt {
+            //         Some(CharacteristicControlEvent::Notify(notifier)) => {
+            //             println!("Accepting notify request event with MTU {}", notifier.mtu());
+            //                                                                 uptime_writer_opt = Some(notifier);
+            //         },
+            //         None => break,
+            //     _ => {break}}
+            // },
             _ = time::sleep(Duration::from_secs(1)) => {
                 let cpu_load = sys.cpu_load_aggregate()?.done()?;
                 let system_cpu_load = cpu_load.system;
