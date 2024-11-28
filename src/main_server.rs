@@ -23,6 +23,7 @@ use tokio::{
 
 const TEMPERATURE: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0001);
 const CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0005);
+const CHARACTERISTIC_UUID2nd: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0006);
 
 #[tokio::main]
 async fn main() -> bluer::Result<()> {
@@ -51,6 +52,7 @@ async fn main() -> bluer::Result<()> {
         adapter.name()
     );
     let (write_notify_control, write_notify_handle) = characteristic_control();
+    let (write_notify_control2nd, write_notify_handle2nd) = characteristic_control();
     let (temp_control, temp_handle) = characteristic_control();
     let app = Application {
         services: vec![Service {
@@ -73,6 +75,21 @@ async fn main() -> bluer::Result<()> {
                     ..Default::default()
                 },
                 Characteristic {
+                    uuid: CHARACTERISTIC_UUID2nd,
+                    write: Some(CharacteristicWrite {
+                        write_without_response: true,
+                        method: CharacteristicWriteMethod::Io,
+                        ..Default::default()
+                    }),
+                    notify: Some(CharacteristicNotify {
+                        notify: true,
+                        method: CharacteristicNotifyMethod::Io,
+                        ..Default::default()
+                    }),
+                    control_handle: write_notify_handle2nd,
+                    ..Default::default()
+                },
+                Characteristic {
                     uuid: TEMPERATURE,
                     notify: Some(CharacteristicNotify {
                         notify: true,
@@ -89,16 +106,21 @@ async fn main() -> bluer::Result<()> {
     };
     let app_handle = adapter.serve_gatt_application(app).await?;
 
-    println!("Echo service ready. Press enter to quit.");
+    println!("Echo service ready");
     let stdin = BufReader::new(tokio::io::stdin());
 
     let mut read_buf = Vec::new();
+    let mut read_buf2nd = Vec::new();
     let mut reader_opt: Option<CharacteristicReader> = None;
     let mut writer_opt: Option<CharacteristicWriter> = None;
+
+    let mut reader_opt2nd: Option<CharacteristicReader> = None;
+    let mut writer_opt2nd: Option<CharacteristicWriter> = None;
 
     let mut temp_writer_opt: Option<CharacteristicWriter> = None;
 
     pin_mut!(write_notify_control);
+    pin_mut!(write_notify_control2nd);
     pin_mut!(temp_control);
 
     let sys = systemstat::System::new();
@@ -115,6 +137,20 @@ async fn main() -> bluer::Result<()> {
                     Some(CharacteristicControlEvent::Notify(notifier)) => {
                         println!("Accepting notify request event with MTU {}", notifier.mtu());
                         writer_opt = Some(notifier);
+                    },
+                    None => break,
+                }
+            },
+            evt = write_notify_control2nd.next() => {
+                match evt {
+                    Some(CharacteristicControlEvent::Write(req)) => {
+                        println!("Accepting write request event with MTU {}", req.mtu());
+                        read_buf2nd = vec![0; req.mtu()];
+                        reader_opt2nd = Some(req.accept()?);
+                    },
+                    Some(CharacteristicControlEvent::Notify(notifier)) => {
+                        println!("Accepting notify request event with MTU {}", notifier.mtu());
+                        writer_opt2nd = Some(notifier);
                     },
                     None => break,
                 }
@@ -157,6 +193,36 @@ async fn main() -> bluer::Result<()> {
                     }
                 }
             },
+
+            read_res = async {
+                match &mut reader_opt2nd {
+                    Some(reader) if writer_opt2nd.is_some() => reader.read(&mut read_buf2nd).await,
+                    _ => future::pending().await,
+                }
+            } => {
+                match read_res {
+                    Ok(0) => {
+                        println!("Read stream ended");
+                        reader_opt2nd = None;
+                    }
+                    Ok(n) => {
+                        let value = read_buf2nd[..n].to_vec();
+                        println!("Echoing {} 2nd bytes: {:x?} ... {:x?}", value.len(), &value[0..4.min(value.len())], &value[value.len().saturating_sub(4) ..]);
+                        if value.len() < 512 {
+                            println!();
+                        }
+                        if let Err(err) = writer_opt2nd.as_mut().unwrap().write_all(&value).await {
+                            println!("Write 2nd failed: {}", &err);
+                            writer_opt2nd = None;
+                        }
+                    }
+                    Err(err) => {
+                        println!("Read stream error: {}", &err);
+                        reader_opt2nd = None;
+                    }
+                }
+            },
+
             _ = time::sleep(Duration::from_secs(1)) => {
                 // let cpu_load = sys.cpu_load_aggregate()?.done()?;
                 // let system_cpu_load = cpu_load.system;
