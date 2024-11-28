@@ -22,7 +22,7 @@ use tokio::{
 };
 
 const TEMPERATURE: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0001);
-const CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0002);
+const CHARACTERISTIC_UUID: uuid::Uuid = uuid::Uuid::from_u128(0xfd2bcccb0005);
 
 #[tokio::main]
 async fn main() -> bluer::Result<()> {
